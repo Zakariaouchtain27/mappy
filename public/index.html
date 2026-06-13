@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mappy — Find a Match</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ============ LOGIN / LOBBY SCREEN ============ -->
+    <section id="login-screen" class="screen active">
+      <div class="card">
+        <h1 class="logo">Mappy</h1>
+        <p class="tagline">Tell us about yourself, then find a match.</p>
+
+        <form id="login-form" autocomplete="off">
+          <label class="field">
+            <span>Name</span>
+            <input type="text" id="name" placeholder="e.g. User A" maxlength="40" required />
+          </label>
+
+          <label class="field">
+            <span>Gender</span>
+            <select id="gender" required>
+              <option value="" disabled selected>Select…</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Age</span>
+            <input type="number" id="age" placeholder="e.g. 25" min="18" max="120" required />
+          </label>
+
+          <fieldset class="prefs">
+            <legend>Match preferences (optional)</legend>
+
+            <label class="field">
+              <span>Looking for</span>
+              <select id="lookingFor">
+                <option value="any" selected>Anyone</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+
+            <div class="field-row">
+              <label class="field">
+                <span>Min age</span>
+                <input type="number" id="minAge" placeholder="any" min="18" max="120" />
+              </label>
+              <label class="field">
+                <span>Max age</span>
+                <input type="number" id="maxAge" placeholder="any" min="18" max="120" />
+              </label>
+            </div>
+          </fieldset>
+
+          <button type="submit" id="find-match-btn" class="btn primary">Find Match</button>
+          <button type="button" id="cancel-search-btn" class="btn ghost hidden">Cancel search</button>
+        </form>
+
+        <p id="status" class="status"></p>
+      </div>
+    </section>
+
+    <!-- ============ CHAT SCREEN ============ -->
+    <section id="chat-screen" class="screen">
+      <header class="chat-header">
+        <div>
+          <h2 id="partner-name">Match</h2>
+          <p id="partner-meta" class="muted"></p>
+        </div>
+        <button id="leave-btn" class="btn ghost small">Leave</button>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <form id="chat-form" class="chat-form">
+        <input type="text" id="chat-input" placeholder="Type a message…" maxlength="2000" autocomplete="off" />
+        <button type="submit" class="btn primary">Send</button>
+      </form>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
