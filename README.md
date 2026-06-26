@@ -99,6 +99,18 @@ shared room → chat relay, plus the queued-letter case.
   geocoder; if it's unavailable the app simply uses coordinates and you can type
   a label yourself.
 
+## Troubleshooting
+
+- **Blank map / empty box on the login screen.** The page renders but the globe
+  doesn't. Usually the server wasn't restarted after pulling, or dependencies
+  weren't installed. Fix: stop the server (`Ctrl + C`), then `npm install` and
+  `npm start` again, and hard-refresh the browser (`Ctrl + Shift + R`). The
+  client also falls back to loading MapLibre from a CDN automatically, and if the
+  map still can't render it shows a message and you can continue with **Use my
+  location** or by typing your city — the rest of the app works without the map.
+- **"Map tiles couldn't load."** Your network/firewall is blocking the map tiles
+  (`basemaps.cartocdn.com`). The app still works; you just won't see the globe.
+
 ## Project layout
 
 ```

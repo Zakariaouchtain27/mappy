@@ -209,6 +209,19 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .maplibregl-map { border-radius: inherit; }
 .mini-map .maplibregl-canvas, .full-map .maplibregl-canvas { border-radius: inherit; }
 
+/* Shown inside a map container when the map can't render */
+.map-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* ---------- Chat ---------- */
 #chat-screen.active { display: flex; flex-direction: column; height: 80vh; }
 .chat-header {
