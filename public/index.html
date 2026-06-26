@@ -3,72 +3,86 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mappy — Find a Match</title>
+  <title>Mappy — Send a letter across the map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="app">
-    <!-- ============ LOGIN / LOBBY SCREEN ============ -->
+
+    <!-- ============ LOGIN: name + location ============ -->
     <section id="login-screen" class="screen active">
       <div class="card">
         <h1 class="logo">Mappy</h1>
-        <p class="tagline">Tell us about yourself, then find a match.</p>
+        <p class="tagline">Drop a pin, write a letter, watch it travel.</p>
 
-        <form id="login-form" autocomplete="off">
-          <label class="field">
-            <span>Name</span>
-            <input type="text" id="name" placeholder="e.g. User A" maxlength="40" required />
-          </label>
+        <label class="field">
+          <span>Your name</span>
+          <input type="text" id="name" placeholder="e.g. User A" maxlength="40" />
+        </label>
 
-          <label class="field">
-            <span>Gender</span>
-            <select id="gender" required>
-              <option value="" disabled selected>Select…</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
+        <label class="field">
+          <span>Where are you?</span>
+          <input type="text" id="place" placeholder="Use my location, or click the map" maxlength="80" />
+        </label>
 
-          <label class="field">
-            <span>Age</span>
-            <input type="number" id="age" placeholder="e.g. 25" min="18" max="120" required />
-          </label>
+        <div id="login-map" class="mini-map"></div>
 
-          <fieldset class="prefs">
-            <legend>Match preferences (optional)</legend>
+        <div class="login-actions">
+          <button type="button" id="locate-btn" class="btn ghost small">📍 Use my location</button>
+          <span id="coords" class="coords muted"></span>
+        </div>
 
-            <label class="field">
-              <span>Looking for</span>
-              <select id="lookingFor">
-                <option value="any" selected>Anyone</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-
-            <div class="field-row">
-              <label class="field">
-                <span>Min age</span>
-                <input type="number" id="minAge" placeholder="any" min="18" max="120" />
-              </label>
-              <label class="field">
-                <span>Max age</span>
-                <input type="number" id="maxAge" placeholder="any" min="18" max="120" />
-              </label>
-            </div>
-          </fieldset>
-
-          <button type="submit" id="find-match-btn" class="btn primary">Find Match</button>
-          <button type="button" id="cancel-search-btn" class="btn ghost hidden">Cancel search</button>
-        </form>
-
-        <p id="status" class="status"></p>
+        <button type="button" id="enter-btn" class="btn primary" disabled>Enter Mappy</button>
+        <p id="login-hint" class="status">Click the map or use your location to set your pin.</p>
       </div>
     </section>
 
-    <!-- ============ CHAT SCREEN ============ -->
+    <!-- ============ LOBBY: write & send a letter ============ -->
+    <section id="lobby-screen" class="screen">
+      <div class="card">
+        <h2 id="lobby-greeting" class="lobby-title">Write a letter</h2>
+        <p class="muted">Your letter flies to someone else online right now. If they like it, you chat.</p>
+
+        <textarea id="letter-text" class="letter-input" rows="5"
+                  maxlength="2000" placeholder="Dear stranger,&#10;&#10;…"></textarea>
+
+        <button type="button" id="send-letter-btn" class="btn primary">✉️ Send Letter</button>
+        <p id="lobby-status" class="status"></p>
+      </div>
+    </section>
+
+    <!-- ============ STAGE: the map fly-across animation ============ -->
+    <section id="stage-screen" class="screen">
+      <div id="stage-map" class="full-map"></div>
+
+      <div id="stage-banner" class="stage-banner"></div>
+
+      <!-- Sender waiting overlay -->
+      <div id="waiting-panel" class="overlay-panel hidden">
+        <p id="waiting-text">Delivered. Waiting for them to open your letter…</p>
+        <button type="button" id="cancel-letter-btn" class="btn ghost small">Cancel</button>
+      </div>
+
+      <!-- Recipient letter overlay (shown after the arc animation) -->
+      <div id="letter-panel" class="overlay-panel letter-card hidden">
+        <div class="letter-from">
+          <span class="stamp">✉️</span>
+          <div>
+            <strong id="letter-sender">Someone</strong>
+            <span id="letter-origin" class="muted"></span>
+          </div>
+        </div>
+        <p id="letter-body" class="letter-body"></p>
+        <div class="letter-actions">
+          <button type="button" id="pass-btn" class="btn ghost">Pass</button>
+          <button type="button" id="accept-btn" class="btn primary">Accept & Chat</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CHAT ============ -->
     <section id="chat-screen" class="screen">
       <header class="chat-header">
         <div>
@@ -85,8 +99,11 @@
         <button type="submit" class="btn primary">Send</button>
       </form>
     </section>
+
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/client.js"></script>
 </body>

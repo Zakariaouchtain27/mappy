@@ -1,19 +1,22 @@
 /**
- * End-to-end matchmaking test.
+ * End-to-end test for the letter -> accept -> chat flow.
  *
- * Mirrors the manual test plan:
- *   - User A logs in as Male, 25
- *   - User B logs in as Female, 22
- *   - Both click "Find Match" and should be paired via `match_found`
- *   - A message sent by one is delivered to the other in the shared room
+ *   - User A (in Paris) and User B (in New York) both come online.
+ *   - A writes a letter and sends it; B receives it with both real locations.
+ *   - B accepts; both are placed in a shared room and can chat.
+ *   - A queued letter (sent while nobody is free) is delivered once a new
+ *     user comes online.
  *
- * Run with: node test/matchmaking.test.js
- * Exits non-zero on failure.
+ * Run with: node test/matchmaking.test.js   (exits non-zero on failure)
  */
 
 const assert = require('assert');
 const { io: Client } = require('socket.io-client');
 const { server } = require('../server');
+
+const PARIS = { lat: 48.8566, lng: 2.3522, place: 'Paris, France' };
+const NYC = { lat: 40.7128, lng: -74.006, place: 'New York, USA' };
+const TOKYO = { lat: 35.6762, lng: 139.6503, place: 'Tokyo, Japan' };
 
 function connect(port) {
   return new Promise((resolve) => {
@@ -21,14 +24,9 @@ function connect(port) {
     socket.on('connect', () => resolve(socket));
   });
 }
-
-function once(socket, event) {
-  return new Promise((resolve) => socket.once(event, resolve));
-}
-
-function register(socket, profile) {
-  return new Promise((resolve) => socket.emit('register', profile, resolve));
-}
+const once = (socket, event) => new Promise((res) => socket.once(event, res));
+const register = (socket, profile) => new Promise((res) => socket.emit('register', profile, res));
+const sendLetter = (socket, text) => new Promise((res) => socket.emit('send_letter', { text }, res));
 
 async function run() {
   await new Promise((resolve) => server.listen(0, resolve));
@@ -37,64 +35,67 @@ async function run() {
   const a = await connect(port);
   const b = await connect(port);
 
-  // --- Register both users ---
-  const ackA = await register(a, { name: 'User A', gender: 'male', age: 25 });
-  const ackB = await register(b, { name: 'User B', gender: 'female', age: 22 });
-  assert.strictEqual(ackA.ok, true, 'User A should register');
-  assert.strictEqual(ackB.ok, true, 'User B should register');
-  assert.strictEqual(ackA.profile.gender, 'male');
-  assert.strictEqual(ackB.profile.age, 22);
-  console.log('✓ both users registered with stored preferences');
+  // --- Register both with real locations ---
+  const ackA = await register(a, { name: 'User A', ...PARIS });
+  const ackB = await register(b, { name: 'User B', ...NYC });
+  assert.strictEqual(ackA.ok, true);
+  assert.strictEqual(ackB.ok, true);
+  assert.strictEqual(ackA.profile.place, 'Paris, France');
+  console.log('✓ both users registered with real locations stored');
 
-  // --- Find match ---
-  const matchA = once(a, 'match_found');
-  const matchB = once(b, 'match_found');
+  // --- A sends a letter; B receives it ---
+  const bGetsLetter = once(b, 'letter_received');
+  const aDelivered = once(a, 'letter_delivered');
+  const sendAck = await sendLetter(a, 'Dear stranger, hello from Paris!');
+  assert.strictEqual(sendAck.ok, true);
+  assert.strictEqual(sendAck.status, 'delivered');
 
-  a.emit('find_match'); // A starts searching (no partner yet)
-  // small gap so A is in the waiting pool before B searches
-  await new Promise((r) => setTimeout(r, 50));
-  b.emit('find_match'); // B searches and should pair with A
+  const letter = await bGetsLetter;
+  assert.strictEqual(letter.text, 'Dear stranger, hello from Paris!');
+  assert.strictEqual(letter.from.name, 'User A');
+  assert.ok(Math.abs(letter.from.lat - PARIS.lat) < 1e-6, 'sender lat carried through');
+  assert.ok(Math.abs(letter.to.lng - NYC.lng) < 1e-6, 'recipient lng carried through');
+  console.log('✓ letter delivered with sender + recipient coordinates (the map arc data)');
 
-  const [resA, resB] = await Promise.all([matchA, matchB]);
+  const delivered = await aDelivered;
+  assert.strictEqual(delivered.to.name, 'User B');
+  console.log('✓ sender notified of delivery (so they can animate the send)');
 
-  assert.ok(resA.room && resB.room, 'both should receive a room');
-  assert.strictEqual(resA.room, resB.room, 'both should share the same room');
-  assert.strictEqual(resA.partner.name, 'User B', 'A should be matched with User B');
-  assert.strictEqual(resB.partner.name, 'User A', 'B should be matched with User A');
-  assert.strictEqual(resA.partner.gender, 'female');
-  assert.strictEqual(resB.partner.gender, 'male');
-  console.log('✓ User A (Male, 25) and User B (Female, 22) were paired');
+  // --- B accepts -> both land in the same room ---
+  const aAccepted = once(a, 'letter_accepted');
+  const bAccepted = once(b, 'letter_accepted');
+  b.emit('accept_letter');
+  const [ra, rb] = await Promise.all([aAccepted, bAccepted]);
+  assert.ok(ra.room && ra.room === rb.room, 'both share one room');
+  assert.strictEqual(ra.partner.name, 'User B');
+  assert.strictEqual(rb.partner.name, 'User A');
+  console.log('✓ acceptance opens a shared chat room for both users');
 
-  // --- Chat relay within the room ---
-  const gotByB = once(b, 'chat_message');
-  a.emit('chat_message', { room: resA.room, text: 'Hello from A' });
-  const msg = await gotByB;
-  assert.strictEqual(msg.text, 'Hello from A', 'B should receive A\'s message');
+  // --- Chat relay ---
+  const bMsg = once(b, 'chat_message');
+  a.emit('chat_message', { room: ra.room, text: 'Hi from Paris!' });
+  const msg = await bMsg;
+  assert.strictEqual(msg.text, 'Hi from Paris!');
   assert.strictEqual(msg.name, 'User A');
-  console.log('✓ chat message relayed across the matched pair');
+  console.log('✓ chat messages relay between the matched pair');
 
-  // --- Preference filtering: an incompatible third user should not match ---
+  // --- Queued letter: sent with nobody free, delivered when someone arrives ---
   const c = await connect(port);
-  await register(c, {
-    name: 'User C',
-    gender: 'male',
-    age: 40,
-    lookingFor: 'female',
-    minAge: 18,
-    maxAge: 20, // wants 18-20, so 22-year-old B would be out of range anyway
-  });
-  let cMatched = false;
-  c.on('match_found', () => { cMatched = true; });
-  c.emit('find_match');
-  await new Promise((r) => setTimeout(r, 100));
-  assert.strictEqual(cMatched, false, 'User C should stay unmatched (no compatible partner)');
-  console.log('✓ preference filtering keeps incompatible users unmatched');
+  await register(c, { name: 'User C', ...TOKYO });
+  const queuedAck = await sendLetter(c, 'Anyone out there?');
+  assert.strictEqual(queuedAck.status, 'queued', 'no one free -> letter is queued');
 
-  a.close();
-  b.close();
-  c.close();
+  const d = await connect(port);
+  const dGetsLetter = once(d, 'letter_received');
+  await register(d, { name: 'User D', ...PARIS });
+  const queuedLetter = await dGetsLetter;
+  assert.strictEqual(queuedLetter.text, 'Anyone out there?');
+  assert.strictEqual(queuedLetter.from.name, 'User C');
+  console.log('✓ queued letter is delivered when a new user comes online');
+
+  [a, b, c, d].forEach((s) => s.close());
   await new Promise((resolve) => server.close(resolve));
-  console.log('\nAll matchmaking tests passed.');
+  console.log('\nAll letter-flow tests passed.');
 }
 
 run().catch((err) => {
