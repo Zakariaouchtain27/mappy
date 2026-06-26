@@ -22,6 +22,8 @@ const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
+// Serve the MapLibre GL library from node_modules so the client needs no CDN.
+app.use('/vendor/maplibre-gl', express.static(path.join(__dirname, 'node_modules', 'maplibre-gl', 'dist')));
 
 // ---------------------------------------------------------------------------
 // In-memory state

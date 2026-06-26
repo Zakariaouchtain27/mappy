@@ -1,14 +1,9 @@
-/* Mappy client: pick a location -> send a letter -> watch it fly -> chat. */
+/* Mappy client: pick a location on a 3D globe -> send a letter -> watch it fly -> chat. */
 (function () {
   const socket = io();
 
-  // Tile layer (free CARTO dark tiles, OSM data).
-  const TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-  const TILE_OPTS = {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  };
+  // Free vector style (CARTO dark); globe projection is applied on load.
+  const STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
   // ---- Screen helpers ----
   const screens = {
@@ -19,7 +14,7 @@
   };
   function show(name) {
     Object.entries(screens).forEach(([k, el]) => el.classList.toggle('active', k === name));
-    if (name === 'stage' && stageMap) setTimeout(() => stageMap.invalidateSize(), 60);
+    if (name === 'stage' && stageMap) setTimeout(() => stageMap.resize(), 60);
   }
 
   // ---- State ----
@@ -29,8 +24,73 @@
 
   socket.on('connect', () => { myId = socket.id; });
 
+  // ---- Globe / geometry helpers --------------------------------------------
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+
+  // Central angle (radians) between two lat/lng points.
+  function angularDist(a, b) {
+    const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+    const s = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * Math.asin(Math.min(1, Math.sqrt(s)));
+  }
+
+  // Great-circle path as [lng, lat] pairs (so the arc bends over the sphere).
+  function greatCircle(a, b, steps) {
+    const lat1 = toRad(a.lat), lon1 = toRad(a.lng), lat2 = toRad(b.lat), lon2 = toRad(b.lng);
+    const d = angularDist(a, b);
+    if (d === 0) return [[a.lng, a.lat], [b.lng, b.lat]];
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      const A = Math.sin((1 - f) * d) / Math.sin(d);
+      const B = Math.sin(f * d) / Math.sin(d);
+      const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+      const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+      const z = A * Math.sin(lat1) + B * Math.sin(lat2);
+      pts.push([toDeg(Math.atan2(y, x)), toDeg(Math.atan2(z, Math.hypot(x, y)))]);
+    }
+    return pts;
+  }
+
+  const lineFeature = (coords) => ({
+    type: 'Feature', geometry: { type: 'LineString', coordinates: coords },
+  });
+
+  function enableGlobe(map) {
+    try { map.setProjection({ type: 'globe' }); } catch (_) {}
+    try {
+      map.setSky({
+        'sky-color': '#0a0e1f',
+        'horizon-color': '#222a52',
+        'fog-color': '#0a0e1f',
+        'sky-horizon-blend': 0.6,
+        'horizon-fog-blend': 0.5,
+        'fog-ground-blend': 0.4,
+        'atmosphere-blend': 0.7,
+      });
+    } catch (_) {}
+  }
+
+  function pinElement(emoji, label) {
+    const el = document.createElement('div');
+    el.className = 'map-pin';
+    el.innerHTML = `<div class="pin">${emoji}</div>` +
+      (label ? `<div class="pin-label">${escapeHtml(label)}</div>` : '');
+    return el;
+  }
+  function flyerElement() {
+    const el = document.createElement('div');
+    el.className = 'flyer';
+    el.textContent = '✉️';
+    return el;
+  }
+
   // =========================================================================
-  // LOGIN: pick a location on a real map
+  // LOGIN: pick a location on a 3D globe
   // =========================================================================
   const nameInput = document.getElementById('name');
   const placeInput = document.getElementById('place');
@@ -39,8 +99,18 @@
   const locateBtn = document.getElementById('locate-btn');
   const loginHint = document.getElementById('login-hint');
 
-  const loginMap = L.map('login-map', { zoomControl: true }).setView([20, 0], 2);
-  L.tileLayer(TILE_URL, TILE_OPTS).addTo(loginMap);
+  const loginMap = new maplibregl.Map({
+    container: 'login-map',
+    style: STYLE_URL,
+    center: [0, 20],
+    zoom: 1.1,
+    pitch: 30,
+    attributionControl: true,
+  });
+  loginMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+  loginMap.on('load', () => enableGlobe(loginMap));
+  loginMap.on('click', (e) => setMyLocation(e.lngLat.lat, e.lngLat.lng, { fly: false }));
+
   let myMarker = null;
 
   function setMyLocation(lat, lng, { fly = true } = {}) {
@@ -48,33 +118,33 @@
     me.lng = lng;
     coordsEl.textContent = `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
     if (!myMarker) {
-      myMarker = L.marker([lat, lng], { draggable: true, icon: pinIcon('📍') }).addTo(loginMap);
+      myMarker = new maplibregl.Marker({ element: pinElement('📍'), anchor: 'bottom', draggable: true })
+        .setLngLat([lng, lat])
+        .addTo(loginMap);
       myMarker.on('dragend', () => {
-        const p = myMarker.getLatLng();
+        const p = myMarker.getLngLat();
         setMyLocation(p.lat, p.lng, { fly: false });
       });
     } else {
-      myMarker.setLatLng([lat, lng]);
+      myMarker.setLngLat([lng, lat]);
     }
-    if (fly) loginMap.flyTo([lat, lng], Math.max(loginMap.getZoom(), 10), { duration: 0.8 });
+    if (fly) loginMap.flyTo({ center: [lng, lat], zoom: Math.max(loginMap.getZoom(), 5), pitch: 30, duration: 1200 });
     reverseGeocode(lat, lng);
     refreshEnter();
   }
 
-  loginMap.on('click', (e) => setMyLocation(e.latlng.lat, e.latlng.lng, { fly: false }));
-
   locateBtn.addEventListener('click', () => {
     if (!navigator.geolocation) {
-      loginHint.textContent = 'Geolocation unavailable — click the map instead.';
+      loginHint.textContent = 'Geolocation unavailable — click the globe instead.';
       return;
     }
     loginHint.textContent = 'Locating…';
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setMyLocation(pos.coords.latitude, pos.coords.longitude);
-        loginHint.textContent = 'Pin set! Adjust it by dragging if needed.';
+        loginHint.textContent = 'Pin set! Drag it to fine-tune if needed.';
       },
-      () => { loginHint.textContent = 'Could not get your location — click the map to drop a pin.'; },
+      () => { loginHint.textContent = 'Could not get your location — click the globe to drop a pin.'; },
       { enableHighAccuracy: true, timeout: 8000 }
     );
   });
@@ -129,7 +199,7 @@
   });
 
   // =========================================================================
-  // STAGE: the real-map fly-across animation
+  // STAGE: the 3D globe fly-across animation
   // =========================================================================
   const stageBanner = document.getElementById('stage-banner');
   const waitingPanel = document.getElementById('waiting-panel');
@@ -143,81 +213,84 @@
   const passBtn = document.getElementById('pass-btn');
 
   let stageMap = null;
-  let stageLayers = [];
+  let stageReady = null;
+  let flyerMarker = null;
+  let endpointMarkers = [];
 
-  function ensureStageMap() {
-    if (stageMap) return stageMap;
-    stageMap = L.map('stage-map', { zoomControl: true, attributionControl: true }).setView([20, 0], 2);
-    L.tileLayer(TILE_URL, TILE_OPTS).addTo(stageMap);
-    return stageMap;
-  }
-  function clearStage() {
-    stageLayers.forEach((l) => stageMap.removeLayer(l));
-    stageLayers = [];
-  }
-  function addLayer(layer) { layer.addTo(stageMap); stageLayers.push(layer); return layer; }
-
-  function pinIcon(emoji) {
-    return L.divIcon({ className: '', html: `<div class="pin">${emoji}</div>`, iconSize: [30, 30], iconAnchor: [15, 28] });
-  }
-  function labelIcon(text) {
-    return L.divIcon({ className: '', html: `<div class="pin-label">${escapeHtml(text)}</div>`, iconSize: [0, 0] });
-  }
-  function flyerIcon() {
-    return L.divIcon({ className: '', html: `<div class="flyer">✉️</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
-  }
-
-  // Quadratic-bezier arc points between two coords.
-  function arcPoints(a, b, steps) {
-    const dLat = b.lat - a.lat, dLng = b.lng - a.lng;
-    const curve = 0.22;
-    const cLat = (a.lat + b.lat) / 2 + -dLng * curve;
-    const cLng = (a.lng + b.lng) / 2 + dLat * curve;
-    const pts = [];
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps, u = 1 - t;
-      pts.push([
-        u * u * a.lat + 2 * u * t * cLat + t * t * b.lat,
-        u * u * a.lng + 2 * u * t * cLng + t * t * b.lng,
-      ]);
-    }
-    return pts;
+  function ensureStage() {
+    if (stageReady) return stageReady;
+    stageMap = new maplibregl.Map({
+      container: 'stage-map',
+      style: STYLE_URL,
+      center: [0, 20],
+      zoom: 1.2,
+      pitch: 40,
+      attributionControl: true,
+      antialias: true,
+    });
+    stageMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+    stageReady = new Promise((resolve) => {
+      stageMap.on('load', () => {
+        enableGlobe(stageMap);
+        stageMap.addSource('arc', { type: 'geojson', data: lineFeature([]) });
+        stageMap.addLayer({
+          id: 'arc-glow', type: 'line', source: 'arc',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#00cec9', 'line-width': 9, 'line-opacity': 0.18, 'line-blur': 6 },
+        });
+        stageMap.addLayer({
+          id: 'arc-line', type: 'line', source: 'arc',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#00cec9', 'line-width': 3, 'line-opacity': 0.95, 'line-dasharray': [1.6, 1.4] },
+        });
+        resolve();
+      });
+    });
+    return stageReady;
   }
 
-  const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  function clearStageMarkers() {
+    endpointMarkers.forEach((m) => m.remove());
+    endpointMarkers = [];
+    if (flyerMarker) { flyerMarker.remove(); flyerMarker = null; }
+    if (stageMap.getSource('arc')) stageMap.getSource('arc').setData(lineFeature([]));
+  }
 
-  /** Animate a letter flying from `a` to `b`. Returns a promise that resolves when it lands. */
-  function playArc(a, b, { fromLabel, toLabel } = {}) {
-    ensureStageMap();
-    clearStage();
+  function addPin(emoji, label, p) {
+    const m = new maplibregl.Marker({ element: pinElement(emoji, label), anchor: 'bottom' })
+      .setLngLat([p.lng, p.lat]).addTo(stageMap);
+    endpointMarkers.push(m);
+    return m;
+  }
 
-    const A = L.latLng(a.lat, a.lng), B = L.latLng(b.lat, b.lng);
-    addLayer(L.marker(A, { icon: pinIcon('🟢'), interactive: false }));
-    addLayer(L.marker(B, { icon: pinIcon('📍'), interactive: false }));
-    if (fromLabel) addLayer(L.marker(A, { icon: labelIcon(fromLabel), interactive: false }));
-    if (toLabel) addLayer(L.marker(B, { icon: labelIcon(toLabel), interactive: false }));
+  /** Fly a letter from `a` to `b` along a great-circle arc over the globe. */
+  async function playArc(a, b, { fromLabel, toLabel } = {}) {
+    await ensureStage();
+    stageMap.resize();
+    clearStageMarkers();
 
-    const steps = 140;
-    const pts = arcPoints(A, B, steps);
-    const trail = addLayer(L.polyline([pts[0]], { color: '#00cec9', weight: 3, opacity: 0.9, dashArray: '6 8' }));
-    const flyer = addLayer(L.marker(pts[0], { icon: flyerIcon(), interactive: false }));
+    addPin('🟢', fromLabel, a);
+    addPin('📍', toLabel, b);
+    flyerMarker = new maplibregl.Marker({ element: flyerElement(), anchor: 'center' })
+      .setLngLat([a.lng, a.lat]).addTo(stageMap);
 
-    // Frame the whole journey.
-    if (A.distanceTo(B) < 1) {
-      stageMap.setView(A, 11);
-    } else {
-      stageMap.fitBounds(L.latLngBounds(A, B).pad(0.45), { animate: true });
-    }
+    const coords = greatCircle(a, b, 180);
+    const mid = coords[Math.floor(coords.length / 2)];
+    const d = angularDist(a, b);
+    const zoom = clamp(3.4 - d * 1.7, 0.7, 4.2);
+
+    // Cinematic camera move to frame the journey in 3D.
+    stageMap.flyTo({ center: mid, zoom, pitch: 38, bearing: 0, duration: 1500, essential: true });
 
     return new Promise((resolve) => {
-      const duration = 2600;
+      const duration = 2800;
       let start = null;
       function frame(ts) {
         if (start == null) start = ts;
         const p = Math.min(1, (ts - start) / duration);
-        const idx = Math.floor(easeInOut(p) * steps);
-        flyer.setLatLng(pts[idx]);
-        trail.setLatLngs(pts.slice(0, idx + 1));
+        const idx = Math.max(1, Math.floor(easeInOut(p) * (coords.length - 1)));
+        stageMap.getSource('arc').setData(lineFeature(coords.slice(0, idx + 1)));
+        flyerMarker.setLngLat(coords[idx]);
         if (p < 1) requestAnimationFrame(frame);
         else resolve();
       }
@@ -226,16 +299,17 @@
   }
 
   // ---- Sender side ----
-  function openStageAsSender(status) {
+  async function openStageAsSender(status) {
     show('stage');
-    ensureStageMap();
-    clearStage();
+    await ensureStage();
+    stageMap.resize();
+    clearStageMarkers();
     letterPanel.classList.add('hidden');
     waitingPanel.classList.remove('hidden');
 
     if (me.lat != null) {
-      addLayer(L.marker([me.lat, me.lng], { icon: pinIcon('🟢'), interactive: false }));
-      stageMap.setView([me.lat, me.lng], 4);
+      addPin('🟢', 'You', me);
+      stageMap.flyTo({ center: [me.lng, me.lat], zoom: 2.6, pitch: 35, duration: 1000 });
     }
     if (status === 'queued') {
       stageBanner.textContent = '🕊️ Looking for someone online to receive your letter…';
@@ -271,10 +345,7 @@
   });
 
   // ---- Recipient side ----
-  let incoming = null;
-
   socket.on('letter_received', async ({ from, to, text }) => {
-    incoming = { from, text };
     show('stage');
     waitingPanel.classList.add('hidden');
     letterPanel.classList.add('hidden');

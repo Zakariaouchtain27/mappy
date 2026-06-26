@@ -174,14 +174,28 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .letter-actions { display: flex; gap: 12px; }
 .letter-actions .btn { flex: 1; }
 
-/* Map markers (Leaflet divIcons) */
+/* Map markers (MapLibre custom DOM markers) */
+.map-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
 .pin {
   font-size: 26px;
+  line-height: 1;
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
   text-align: center;
 }
-.flyer { font-size: 26px; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6)); }
+.flyer {
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 3px 8px rgba(0,206,201,0.5));
+  animation: bob 1.2s ease-in-out infinite;
+}
+@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 .pin-label {
+  margin-top: 2px;
   background: rgba(16,20,40,0.9);
   border: 1px solid #303759;
   border-radius: 8px;
@@ -189,8 +203,11 @@ input:focus, textarea:focus { border-color: var(--accent); }
   font-size: 12px;
   color: var(--text);
   white-space: nowrap;
-  transform: translateY(-4px);
 }
+
+/* MapLibre canvas should fill (and round) its container */
+.maplibregl-map { border-radius: inherit; }
+.mini-map .maplibregl-canvas, .full-map .maplibregl-canvas { border-radius: inherit; }
 
 /* ---------- Chat ---------- */
 #chat-screen.active { display: flex; flex-direction: column; height: 80vh; }

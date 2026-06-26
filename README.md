@@ -1,13 +1,15 @@
 # Mappy
 
-Send a letter across a **real map**. You drop a pin on your location, write a
-letter, and send it to someone else online. They watch your letter fly across
-the map from your location to theirs — and if they like it, they **accept** and
-the two of you start chatting.
+Send a letter across a **real 3D globe**. You drop a pin on your location, write
+a letter, and send it to someone else online. They watch your letter fly across
+a spinning, tiltable globe from your location to theirs along a great-circle arc
+— and if they like it, they **accept** and the two of you start chatting.
 
-Built with **Node.js + Express + Socket.IO** on the server and **Leaflet +
-OpenStreetMap** for the real maps and the fly-across animation. No database —
-state lives in memory for the lifetime of the server.
+Built with **Node.js + Express + Socket.IO** on the server and **MapLibre GL JS**
+(globe projection) with **OpenStreetMap/CARTO** tiles for the 3D map and the
+fly-across animation. No database — state lives in memory for the lifetime of the
+server. MapLibre is vendored from npm and served by the app, so the library needs
+no CDN (only the map tiles load from the network).
 
 ## Run it
 
@@ -21,13 +23,14 @@ sides. (Set `PORT` to use a different port.)
 
 ## The experience
 
-1. **Pick your spot.** On login, click **📍 Use my location** or click the map
-   to drop your pin, give yourself a name, and enter.
+1. **Pick your spot.** On login, click **📍 Use my location** or click the 3D
+   globe to drop your pin, give yourself a name, and enter.
 2. **Write a letter.** In the lobby, write a note and hit **✉️ Send Letter**.
    It goes to another person who's online and free (or waits in a queue until
    someone arrives).
-3. **Watch it travel.** The recipient sees a full-screen real map and your
-   letter flies along a curved arc from your location to theirs.
+3. **Watch it travel.** The recipient sees a full-screen 3D globe and your letter
+   flies along a great-circle arc from your location to theirs. Drag to spin the
+   globe, right-drag (or use the control) to tilt it.
 4. **Accept & chat.** They read the letter and choose **Accept & Chat** or
    **Pass**. On accept, both of you drop into a private chat.
 
@@ -88,8 +91,10 @@ shared room → chat relay, plus the queued-letter case.
 
 ## Notes
 
-- Maps use [Leaflet](https://leafletjs.com/) with CARTO/OpenStreetMap tiles
-  loaded in the browser, so the client machine needs internet access.
+- The 3D map uses [MapLibre GL JS](https://maplibre.org/) with globe projection.
+  The library is vendored (served from `node_modules` at `/vendor/maplibre-gl`),
+  so no CDN is needed — but the map **tiles** load from CARTO/OpenStreetMap, so
+  the browser still needs internet access. A WebGL-capable browser is required.
 - Place names are filled in best-effort via OpenStreetMap's Nominatim reverse
   geocoder; if it's unavailable the app simply uses coordinates and you can type
   a label yourself.
@@ -99,7 +104,7 @@ shared room → chat relay, plus the queued-letter case.
 ```
 server.js                 Express + Socket.IO server, letter routing & rooms
 public/index.html         Login (map), lobby, animation stage, chat
-public/client.js          Leaflet maps, the fly-across animation, flow wiring
+public/client.js          MapLibre 3D globe, the fly-across animation, flow wiring
 public/style.css          Styling
 test/matchmaking.test.js  End-to-end letter-flow test
 ```
